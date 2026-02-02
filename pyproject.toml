@@ -1,0 +1,46 @@
+[project]
+name = "django-ecommerce"
+version = "0.1.0"
+description = "Example of a simple e-commerce API built with Django"
+authors = [{name = "Ghas"}]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "django>=6.0",
+    "djangorestframework>=3.16.1",
+    "djangorestframework-simplejwt>=5.5.1",
+]
+
+[dependency-groups]
+dev = [
+    "django-stubs>=5.2.8",
+    "djangorestframework-stubs>=3.16.6",
+    "ruff>=0.14.10",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint]
+extend-select = [
+    "E",    # pycodestyle (Error)
+    "W",    # pycodestyle (Warning)
+    "F",    # Pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "D",    # pydocstyle
+    "T20",  # flake8-print
+    "S",    # Bandit
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["D104"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+xfail_strict = true
