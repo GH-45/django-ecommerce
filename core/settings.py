@@ -41,6 +41,8 @@ INSTALLED_APPS = [
     # Third-party apps
     "rest_framework",
     "rest_framework_simplejwt",
+    "phonenumber_field",
+    "django_countries",
     # Local apps
     "apps.user",
     "apps.product",
