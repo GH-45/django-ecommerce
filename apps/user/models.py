@@ -2,7 +2,6 @@
 
 This module contains the custom User model with email-based authentication
 and the Address model for managing user billing and shipping addresses.
-
 """
 
 from typing import TYPE_CHECKING, Any
@@ -21,10 +20,10 @@ if TYPE_CHECKING:
 
 
 class CustomUserManager(BaseUserManager["User"]):
-    """Manager for creating users and superusers with email as the username and required contact fields."""
+    """Manager for creating users and superusers."""
 
     def _create_user(self, email: str, password: str | None = None, **extra_fields: Any) -> "User":
-        """Create a new User.
+        """Create a new user.
 
         Args:
             email: Email address for the user.
@@ -36,7 +35,6 @@ class CustomUserManager(BaseUserManager["User"]):
 
         Returns:
             User: The created user instance.
-
         """
         if not email:
             raise ValueError(_("The Email field cannot be empty"))
@@ -65,7 +63,6 @@ class CustomUserManager(BaseUserManager["User"]):
 
         Returns:
             User: The created user instance.
-
         """
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
@@ -82,7 +79,6 @@ class CustomUserManager(BaseUserManager["User"]):
 
         Returns:
             User: The created user instance.
-
         """
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
@@ -104,8 +100,19 @@ class User(AbstractUser):
     username = None  # Delete the username field, use email instead
 
     email = models.EmailField(_("email address"), unique=True, db_index=True)
-    phone = PhoneNumberField(_("phone number"), null=True, blank=True, unique=True)
-    phone_verified = models.BooleanField(default=False)
+    phone = PhoneNumberField(_("phone number"), null=True, blank=True)
+
+    # Account verification fields
+    email_verified = models.BooleanField(
+        _("is verified"),
+        default=False,
+        help_text=_("Indicates whether the user's email address has been verified."),
+    )
+    is_active = models.BooleanField(
+        _("active"),
+        default=False,
+        help_text=_("Designates whether this user should be treated as active."),
+    )
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
@@ -117,15 +124,14 @@ class User(AbstractUser):
 
         constraints = [
             UniqueConstraint(Lower("email"), name="unique_email_constraint"),
-            UniqueConstraint("phone", name="unique_phone_constraint"),
+            UniqueConstraint("phone", name="unique_phone_constraint", condition=Q(phone__isnull=False)),
         ]
 
     def __str__(self) -> str:
         """Return string representation of the user.
 
         Returns:
-            str: User's full name with email, or just email.
-
+            str: User's full name with email, or just email if full name is empty.
         """
         full_name = self.get_full_name().strip()
 
@@ -136,7 +142,7 @@ class User(AbstractUser):
 
 
 class Address(models.Model):
-    """Model representing a user's address with billing/shipping type support."""
+    """Model representing a user's address."""
 
     class AddressType(models.TextChoices):
         """Enumeration for address types."""
@@ -150,8 +156,8 @@ class Address(models.Model):
     first_name = models.CharField(_("first name"), max_length=150, blank=False)
     last_name = models.CharField(_("last name"), max_length=150, blank=False)
     phone = PhoneNumberField(_("phone number"), null=False, blank=False)
-    street_1 = models.CharField(_("street and number"), max_length=255, blank=False)
-    street_2 = models.CharField(_("additional street information"), max_length=255, blank=True)
+    street = models.CharField(_("street and number"), max_length=255, blank=False)
+    apartament = models.CharField(_("apartment number"), max_length=255, blank=True)
     region = models.CharField(_("administrative division"), max_length=100, blank=True)
     city = models.CharField(_("city"), max_length=100, blank=False)
     postal_code = models.CharField(_("postal code"), max_length=20, blank=True)
@@ -173,6 +179,7 @@ class Address(models.Model):
 
         verbose_name = _("Address")
         verbose_name_plural = _("Addresses")
+        ordering = ["-created_at"]
         indexes = [models.Index(fields=["user", "address_type"])]
         constraints = [
             UniqueConstraint(
@@ -187,9 +194,8 @@ class Address(models.Model):
 
         Returns:
             str: Address string with street, city, and country.
-
         """
-        return f"{self.street_1}, {self.city}, {self.country.name}"
+        return f"{self.street}, {self.city}, {self.country.name}"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save the address instance.
@@ -199,7 +205,6 @@ class Address(models.Model):
         Args:
             *args: Variable length argument list.
             **kwargs: Arbitrary keyword arguments.
-
         """
         if self.default:
             Address.objects.filter(
