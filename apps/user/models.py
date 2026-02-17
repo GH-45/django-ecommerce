@@ -4,6 +4,8 @@ This module contains the custom User model with email-based authentication
 and the Address model for managing user billing and shipping addresses.
 """
 
+from datetime import timezone
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -14,6 +16,9 @@ from django.db.models.functions import Lower
 from django.utils.translation import gettext_lazy as _
 from django_countries.fields import CountryField
 from phonenumber_field.modelfields import PhoneNumberField  # type: ignore[reportMissingTypeStubs]
+
+from .app_settings import verification_code_settings
+from .helpers import calcule_verification_code_expiration
 
 if TYPE_CHECKING:
     from .models import User
@@ -214,3 +219,75 @@ class Address(models.Model):
             ).update(default=False)
 
         super().save(*args, **kwargs)
+
+
+class EmailVerification(models.Model):
+    """Model to store email verification codes."""
+
+    class VerificationStatus(models.TextChoices):
+        """Enumeration for verification code status."""
+
+        PENDING = "PENDING", _("Pending")
+        USED = "USED", _("Used")
+        FAILED = "FAILED", _("Failed")
+        EXPIRED = "EXPIRED", _("Expired")
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="email_verifications")
+
+    verification_code = models.CharField(_("verification code"), max_length=128)
+    attempts = models.IntegerField(_("attempts"), default=0)
+    is_used = models.BooleanField(_("is used"), default=False)
+
+    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
+    expires_at = models.DateTimeField(
+        _("expires at"),
+        default=partial(calcule_verification_code_expiration, minutes=verification_code_settings.EXPIRATION_MINUTES),
+    )
+
+    class Meta:
+        """Metadata configuration for the EmailVerification model."""
+
+        verbose_name = _("Email Verification")
+        verbose_name_plural = _("Email Verifications")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "verification_code"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def __str__(self) -> str:
+        """Return string representation of the email verification.
+
+        Returns:
+            str: String showing the user's email and verification validity status.
+        """
+        return f"Code for {self.user_id or 'Unknown User'} (Status: {self.status})"
+
+    @property
+    def status(self) -> VerificationStatus:
+        """Return the status of the verification code."""
+        status_rules = (
+            ("is_used", self.VerificationStatus.USED),
+            ("has_failed", self.VerificationStatus.FAILED),
+            ("is_expired", self.VerificationStatus.EXPIRED),
+        )
+
+        return next(
+            (status for rule, status in status_rules if getattr(self, rule)),
+            self.VerificationStatus.PENDING,
+        )
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if the verification code is still valid for use."""
+        return self.status == self.VerificationStatus.PENDING
+
+    @property
+    def has_failed(self) -> bool:
+        """Check if the code has failed due to too many attempts."""
+        return not self.is_used and self.attempts >= verification_code_settings.MAX_ATTEMPTS
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if the code has expired."""
+        return not self.is_used and self.expires_at and self.expires_at <= timezone.now()
