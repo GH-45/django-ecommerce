@@ -4,7 +4,7 @@ This module contains the custom User model with email-based authentication
 and the Address model for managing user billing and shipping addresses.
 """
 
-from datetime import timezone
+from collections.abc import Callable
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +13,7 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.db.models import Q, UniqueConstraint
 from django.db.models.functions import Lower
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django_countries.fields import CountryField
 from phonenumber_field.modelfields import PhoneNumberField  # type: ignore[reportMissingTypeStubs]
@@ -221,22 +222,21 @@ class Address(models.Model):
         super().save(*args, **kwargs)
 
 
-class EmailVerification(models.Model):
-    """Model to store email verification codes."""
+class UserVerification(models.Model):
+    """Model to store user verification codes."""
 
     class VerificationStatus(models.TextChoices):
         """Enumeration for verification code status."""
 
-        PENDING = "PENDING", _("Pending")
-        USED = "USED", _("Used")
-        FAILED = "FAILED", _("Failed")
+        ACTIVE = "ACTIVE", _("Active")
+        INACTIVE = "INACTIVE", _("Inactive")
         EXPIRED = "EXPIRED", _("Expired")
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="email_verifications")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="user_verifications")
 
     verification_code = models.CharField(_("verification code"), max_length=128)
     attempts = models.IntegerField(_("attempts"), default=0)
-    is_used = models.BooleanField(_("is used"), default=False)
+    is_valid = models.BooleanField(_("is valid"), default=True)
 
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     expires_at = models.DateTimeField(
@@ -245,18 +245,18 @@ class EmailVerification(models.Model):
     )
 
     class Meta:
-        """Metadata configuration for the EmailVerification model."""
+        """Metadata configuration for the UserVerification model."""
 
-        verbose_name = _("Email Verification")
-        verbose_name_plural = _("Email Verifications")
+        verbose_name = _("User Verification")
+        verbose_name_plural = _("User Verifications")
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["user", "verification_code"]),
+            models.Index(fields=["user", "is_valid", "-created_at"]),
             models.Index(fields=["expires_at"]),
         ]
 
     def __str__(self) -> str:
-        """Return string representation of the email verification.
+        """Return string representation of the user verification.
 
         Returns:
             str: String showing the user's email and verification validity status.
@@ -266,28 +266,25 @@ class EmailVerification(models.Model):
     @property
     def status(self) -> VerificationStatus:
         """Return the status of the verification code."""
-        status_rules = (
-            ("is_used", self.VerificationStatus.USED),
-            ("has_failed", self.VerificationStatus.FAILED),
-            ("is_expired", self.VerificationStatus.EXPIRED),
-        )
+        status_rules: dict[UserVerification.VerificationStatus, Callable[[], bool]] = {
+            self.VerificationStatus.INACTIVE: lambda: not self.is_valid or self.max_attempts_reached,
+            self.VerificationStatus.EXPIRED: lambda: self.is_expired,
+            self.VerificationStatus.ACTIVE: lambda: True,  # Default to active if not inactive or expired
+        }
 
-        return next(
-            (status for rule, status in status_rules if getattr(self, rule)),
-            self.VerificationStatus.PENDING,
-        )
+        return next((status for status, rule in status_rules.items() if rule()))
 
     @property
-    def is_valid(self) -> bool:
-        """Check if the verification code is still valid for use."""
-        return self.status == self.VerificationStatus.PENDING
-
-    @property
-    def has_failed(self) -> bool:
-        """Check if the code has failed due to too many attempts."""
-        return not self.is_used and self.attempts >= verification_code_settings.MAX_ATTEMPTS
+    def is_active(self) -> bool:
+        """Check if the verification code is active for use."""
+        return self.status == self.VerificationStatus.ACTIVE
 
     @property
     def is_expired(self) -> bool:
         """Check if the code has expired."""
-        return not self.is_used and self.expires_at and self.expires_at <= timezone.now()
+        return self.expires_at and self.expires_at <= timezone.now()
+
+    @property
+    def max_attempts_reached(self) -> bool:
+        """Check if the maximum number of verification attempts has been reached."""
+        return self.attempts >= verification_code_settings.MAX_ATTEMPTS

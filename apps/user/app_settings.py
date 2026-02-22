@@ -4,7 +4,7 @@ from django.conf import settings
 
 
 class VerificationCodeSettings:
-    """Settings for email verification codes."""
+    """Settings for user verification codes."""
 
     @property
     def CODE_LENGTH(self) -> int:
