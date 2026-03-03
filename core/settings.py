@@ -7,9 +7,9 @@ https://docs.djangoproject.com/en/6.0/topics/settings/
 
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
-
 """
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -41,9 +41,11 @@ INSTALLED_APPS = [
     # Third-party apps
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "phonenumber_field",
     "django_countries",
     # Local apps
+    "apps.authentication",
     "apps.user",
     "apps.product",
     "apps.cart",
@@ -128,16 +130,45 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
+
 # User model
 # https://docs.djangoproject.com/en/6.0/topics/auth/customizing/#substituting-a-custom-user-model
 
 AUTH_USER_MODEL = "user.User"
 
+
 # REST Framework Configuration
 # https://www.django-rest-framework.org/api-guide/settings/
 
-REST_FRAMEWORK = {
+REST_FRAMEWORK: dict[str, Any] = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ]
+    ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/day",
+        "user": "1000/day",
+        "send_verification_code": "5/hour",
+    },
 }
+
+
+# REST Framework Simple JWT Configuration
+# https://django-rest-framework-simplejwt.readthedocs.io/en/latest/settings.html
+
+SIMPLE_JWT: dict[str, Any] = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "REFRESH_TOKEN_LIFETIME": timedelta(minutes=120),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+}
+
+
+# Custom settings for user verification codes
+VERIFICATION_CODE_LENGTH = 6
+VERIFICATION_CODE_CHARACTERS = "0123456789"
+VERIFICATION_CODE_MAX_ATTEMPTS = 5
+VERIFICATION_CODE_EXPIRATION_MINUTES = 7
