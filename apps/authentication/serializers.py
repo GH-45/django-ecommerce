@@ -9,6 +9,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .models import VerificationCode
 from .services import VerificationCodeService
 
 __all__ = ["AccountVerificationSerializer", "LoginSerializer", "LogoutSerializer", "PasswordChangeConfirmSerializer"]
@@ -36,15 +37,18 @@ class AccountVerificationSerializer(serializers.Serializer[Any]):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Validate the provider verification code for the user."""
-        user = User.objects.filter(email=attrs.get("email")).first()
+        validated = VerificationCodeService.verify_code(
+            email=attrs.get("email"),
+            verification_code=attrs.get("code"),
+            verification_token=self.context.get("verification_token"),
+            purpose=VerificationCode.VerificationType.ACCOUNT_VERIFICATION,
+        )
 
-        if not user or not VerificationCodeService.verify_code(user, attrs.get("code")):
+        if not validated:
             raise serializers.ValidationError(
                 _("Unable to validate account, verify the email address and verification code"),
                 code="verification_code_error",
             )
-
-        attrs["user"] = user
 
         return attrs
 
@@ -160,7 +164,12 @@ class PasswordChangeConfirmSerializer(serializers.Serializer[Any]):
         """Validate the provided verification code."""
         user = self.context["request"].user
 
-        if not VerificationCodeService.verify_code(user, value):
+        if not VerificationCodeService.verify_code(
+            email=user.email,
+            verification_code=value,
+            verification_token=self.context.get("verification_token"),
+            purpose=VerificationCode.VerificationType.PASSWORD_CHANGE,
+        ):
             raise serializers.ValidationError(
                 {"code": _("Invalid verification code")},
                 code="verification_code_error",

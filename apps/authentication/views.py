@@ -2,7 +2,7 @@
 
 import logging
 
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import get_user_model, update_session_auth_hash
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .models import VerificationCode
 from .serializers import (
     AccountVerificationSerializer,
     LoginSerializer,
@@ -24,19 +25,24 @@ __all__ = ["AccountVerificationView", "LoginView", "LogoutView", "PasswordChange
 
 logger = logging.getLogger(__name__)
 
+User = get_user_model()
+
 
 class AccountVerificationView(APIView):
     """API view to handle user account verification."""
 
     permission_classes = [AllowAny]
 
-    def post(self, request: Request) -> Response:
+    def post(self, request: Request, verification_token: str) -> Response:
         """Handle POST request to verify user account."""
-        serializer = AccountVerificationSerializer(data=request.data)
+        serializer = AccountVerificationSerializer(
+            data=request.data,
+            context={"verification_token": verification_token},
+        )
         serializer.is_valid(raise_exception=True)
 
         # Activate the user account
-        user = serializer.validated_data.get("user")
+        user = User.objects.get(email=serializer.validated_data.get("email"))
         user.is_active = True
         user.save(update_fields=["is_active"])
 
@@ -115,7 +121,7 @@ class PasswordChangeView(APIView):
 
     def post(self, request: Request) -> Response:
         """Handler POST request to change user password."""
-        VerificationCodeService.send_verification_email(request.user)
+        VerificationCodeService.send_verification_email(request.user, VerificationCode.VerificationType.PASSWORD_CHANGE)
 
         logger.info("Verification email scheduled to be sent", extra={"user_id": request.user.id})
 
@@ -130,9 +136,12 @@ class PasswordChangeConfirmView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request: Request) -> Response:
+    def post(self, request: Request, verification_token: str) -> Response:
         """Handler POST request to confirm password change."""
-        serializer = PasswordChangeConfirmSerializer(data=request.data, context={"request": request})
+        serializer = PasswordChangeConfirmSerializer(
+            data=request.data,
+            context={"request": request, "verification_token": verification_token},
+        )
         serializer.is_valid(raise_exception=True)
 
         # Update the user password

@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from functools import partial
+from uuid import uuid4
 
 from django.conf import settings
 from django.db import models
@@ -15,6 +16,15 @@ from .helpers import calcule_verification_code_expiration
 class VerificationCode(models.Model):
     """Model to store user verification codes."""
 
+    class VerificationType(models.TextChoices):
+        """Enumeration for verification code purpose."""
+
+        ACCOUNT_VERIFICATION = "ACCOUNT_VERIFICATION", _("Account Verification")
+        MFA_AUTHENTICATION = "MFA_AUTHENTICATION", _("Multi-factor Authentication")
+        EMAIL_CHANGE = "EMAIL_CHANGE", _("Email Change")
+        PASSWORD_CHANGE = "PASSWORD_CHANGE", _("Password Change")
+        PASSWORD_RESET = "PASSWORD_RESET", _("Password Reset")
+
     class VerificationStatus(models.TextChoices):
         """Enumeration for verification code status."""
 
@@ -25,6 +35,8 @@ class VerificationCode(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="verification_codes")
 
     verification_code = models.CharField(_("verification code"), max_length=128)
+    verification_token = models.UUIDField(_("verification token"), unique=True, editable=False, default=uuid4)
+    purpose = models.CharField(max_length=50, choices=VerificationType.choices)
     attempts = models.IntegerField(_("attempts"), default=0)
     is_valid = models.BooleanField(_("is valid"), default=True)
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
@@ -40,7 +52,8 @@ class VerificationCode(models.Model):
         verbose_name_plural = _("Verification Codes")
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["user", "is_valid", "-created_at"]),
+            models.Index(fields=["user", "purpose", "is_valid", "-created_at"]),
+            models.Index(fields=["verification_token", "purpose"]),
             models.Index(fields=["expires_at"]),
         ]
 
